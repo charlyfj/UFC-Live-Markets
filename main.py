@@ -1,14 +1,12 @@
 """
 UFC Fight Market Live Observer v5 — adds Live Markets data into Fights Analysis.
 
-Setup:
-    pip install flask requests websockets
-    python ufc_fight_detail_ws_app_v5.py [--date YYYY-MM-DD] [--port 5000]
+For Railway deployment:
+    - Set environment variable: ODDS_API_KEY (if using odds)
+    - Railway will provide $PORT automatically
 """
 
-import argparse
 import os
-import sys
 import time
 from datetime import date as Date
 
@@ -21,7 +19,10 @@ from state import S
 from websocket_client import start_ws
 
 
-_base = sys._MEIPASS if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+_base = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, "frozen", False):  # for PyInstaller (if you still use it)
+    _base = sys._MEIPASS
+
 app = Flask(__name__, template_folder=os.path.join(_base, "templates"))
 
 
@@ -47,10 +48,16 @@ def stream():
 
 
 if __name__ == "__main__":
+    # === Railway / Production settings ===
+    port = int(os.environ.get("PORT", 5000))   # Railway injects $PORT
+    debug = os.environ.get("FLASK_DEBUG", "False").lower() == "true"
+
+    # Optional: still support local --date flag for development
+    import argparse
+    import sys
     ap = argparse.ArgumentParser(description="UFC Polymarket Live v5")
     ap.add_argument("--date", help="Card date (YYYY-MM-DD). Default: nearest upcoming card.")
-    ap.add_argument("--port", type=int, default=5000)
-    args = ap.parse_args()
+    args, _ = ap.parse_known_args()   # ignore unknown args from Railway
 
     target = Date.fromisoformat(args.date) if args.date else None
     print(f"Fetching UFC fights{' for ' + args.date if args.date else ' (nearest upcoming card)'}…")
@@ -58,7 +65,7 @@ if __name__ == "__main__":
     token_ids     = load_state(target)
     date_str      = S.saturday.strftime("%A, %B %d %Y") if S.saturday else "unknown date"
     fights_count  = len(S.fights)
-    markets_count = sum(len(f["markets"]) for f in S.fights)
+    markets_count = sum(len(f.get("markets", [])) for f in S.fights)
     print(f"Card: {date_str}  |  {fights_count} fights · {markets_count} markets · {len(token_ids)} token streams")
 
     if ODDS_API_KEY:
@@ -68,5 +75,6 @@ if __name__ == "__main__":
         print("ODDS_API_KEY not set — sportsbook odds panel will show setup hint.")
 
     start_ws(token_ids)
-    print(f"Open http://localhost:{args.port}")
-    app.run(host="0.0.0.0", port=args.port, threaded=True, debug=False)
+
+    print(f"Starting server on http://0.0.0.0:{port}")
+    app.run(host="0.0.0.0", port=port, threaded=True, debug=debug)
